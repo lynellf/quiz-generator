@@ -36,6 +36,7 @@ import {
   submitQuiz,
   updateQuizMetadata,
 } from '#/features/quiz/server'
+import { SourceDocumentContent } from '#/features/quiz/sourceRichText'
 import type {
   AttemptSummaryRecord,
   AttemptRecord,
@@ -598,9 +599,11 @@ export function QuizApp({ search }: { search: SearchState }) {
                       expanded ? 'min-h-0 flex-1' : 'max-h-[62vh]'
                     }`}
                   >
-                    <pre className="m-0 whitespace-pre-wrap font-sans text-sm leading-7 text-foreground">
-                      {renderDocumentText(selectedDocument.rawText, selectedDocument.id, activeCitation)}
-                    </pre>
+                    <SourceDocumentContent
+                      rawText={selectedDocument.rawText}
+                      documentId={selectedDocument.id}
+                      citation={activeCitation}
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -1514,34 +1517,6 @@ function splitSubjectPath(subjectPath: string) {
     .split('/')
     .map((segment) => segment.trim())
     .filter(Boolean)
-}
-
-function renderDocumentText(
-  rawText: string,
-  documentId: number,
-  citation: CitationRecord | null,
-) {
-  if (!citation || citation.documentId !== documentId) {
-    return rawText
-  }
-
-  const start = citation.chunkDocumentStartOffset + citation.excerptStartOffset
-  const end = citation.chunkDocumentStartOffset + citation.excerptEndOffset
-
-  return renderHighlightedText(rawText, start, end)
-}
-
-function renderHighlightedText(text: string, startOffset: number, endOffset: number) {
-  const safeStart = Math.max(0, Math.min(startOffset, text.length))
-  const safeEnd = Math.max(safeStart, Math.min(endOffset, text.length))
-
-  return (
-    <>
-      {text.slice(0, safeStart)}
-      <mark className="rounded bg-amber-400/35 px-1 text-inherit">{text.slice(safeStart, safeEnd)}</mark>
-      {text.slice(safeEnd)}
-    </>
-  )
 }
 
 function removeExtension(filename: string) {

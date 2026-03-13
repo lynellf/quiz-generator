@@ -15,6 +15,8 @@ describe('quiz normalization', () => {
     expect(document.blocks[0].sectionLabel).toBe('Intro')
     expect(document.blocks[1].sectionLabel).toBe('Intro > Details')
     expect(document.chunks[0].text).toContain('First paragraph')
+    expect(document.rawText).toContain('# Intro')
+    expect(document.rawText).toContain('## Details')
   })
 
   it('extracts readable content from html', () => {
@@ -27,6 +29,7 @@ describe('quiz normalization', () => {
     )
 
     expect(document.blocks[0].sectionLabel).toBe('Alpha')
+    expect(document.rawText).toContain('# Alpha')
     expect(document.rawText).toContain('Hello world.')
   })
 

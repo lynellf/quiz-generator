@@ -169,12 +169,34 @@ function parseStructuredText(input: string) {
 
   flushParagraph()
 
+  const rawSegments: string[] = []
   const blocks: NormalizedBlock[] = []
   let cursor = 0
+  let previousHeadings: string[] = []
 
   paragraphs.forEach((paragraph, paragraphIndex) => {
+    const nextHeadings = paragraph.sectionLabel ? paragraph.sectionLabel.split(' > ') : []
+    const sharedDepth = countSharedHeadingDepth(previousHeadings, nextHeadings)
+
+    for (let index = sharedDepth; index < nextHeadings.length; index += 1) {
+      if (cursor > 0) {
+        rawSegments.push('\n\n')
+        cursor += 2
+      }
+
+      const headingLine = `${'#'.repeat(index + 1)} ${nextHeadings[index]}`
+      rawSegments.push(headingLine)
+      cursor += headingLine.length
+    }
+
+    if (cursor > 0) {
+      rawSegments.push('\n\n')
+      cursor += 2
+    }
+
     const startOffset = cursor
     const endOffset = cursor + paragraph.text.length
+    rawSegments.push(paragraph.text)
     blocks.push({
       text: paragraph.text,
       sectionLabel: paragraph.sectionLabel,
@@ -183,13 +205,26 @@ function parseStructuredText(input: string) {
       startOffset,
       endOffset,
     })
-    cursor = endOffset + 2
+    cursor = endOffset
+    previousHeadings = nextHeadings
   })
 
   return {
-    rawText: paragraphs.map((paragraph) => paragraph.text).join('\n\n'),
+    rawText: rawSegments.join(''),
     blocks,
   }
+}
+
+function countSharedHeadingDepth(left: string[], right: string[]) {
+  const maxDepth = Math.min(left.length, right.length)
+
+  for (let index = 0; index < maxDepth; index += 1) {
+    if (left[index] !== right[index]) {
+      return index
+    }
+  }
+
+  return maxDepth
 }
 
 function buildChunks(blocks: NormalizedBlock[]): NormalizedChunk[] {
