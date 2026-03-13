@@ -56,6 +56,7 @@ export const quizzes = pgTable('quizzes', {
     .references(() => sourceCollections.id, { onDelete: 'cascade' })
     .notNull(),
   status: text().notNull(),
+  subjectPath: text('subject_path').notNull().default('Uncategorized'),
   title: text().notNull(),
   totalQuestions: integer('total_questions').notNull(),
   multipleChoiceCount: integer('multiple_choice_count').notNull(),

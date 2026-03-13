@@ -23,14 +23,6 @@ export default function Header() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <a
-            href="https://openrouter.ai/"
-            target="_blank"
-            rel="noreferrer"
-            className="hidden rounded-full border border-border/70 bg-background/85 px-3 py-1.5 text-sm font-medium text-muted-foreground no-underline hover:text-foreground sm:inline-flex"
-          >
-            OpenRouter
-          </a>
           <ThemeToggle />
         </div>
       </nav>

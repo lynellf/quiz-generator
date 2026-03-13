@@ -13,12 +13,15 @@ import {
 import { computeQuestionTypeCounts, normalizeDocument } from '#/features/quiz/normalize'
 import { generateQuizWithOpenRouter } from '#/features/quiz/openrouter'
 import type {
+  AttemptSummaryRecord,
   AttemptRecord,
   CitationRecord,
   ParsedUpload,
   QuizGenerationSettings,
+  QuizMetadataUpdate,
   QuizRecord,
   QuizQuestionRecord,
+  QuizSummaryRecord,
   SourceChunkForModel,
 } from '#/features/quiz/types'
 
@@ -122,6 +125,7 @@ export async function createQuizFromUploads({
     .values({
       sourceCollectionId: sourceCollection.id,
       status: 'ready',
+      subjectPath: settings.subjectPath,
       title: generation.payload.quizTitle,
       totalQuestions: counts.totalQuestions,
       multipleChoiceCount: counts.multipleChoiceCount,
@@ -213,6 +217,8 @@ export async function getQuizRecord(quizId: number): Promise<QuizRecord> {
             excerptEndOffset: questionCitations.excerptEndOffset,
             documentName: documents.displayName,
             chunkText: documentChunks.text,
+            chunkDocumentStartOffset: documentChunks.documentStartOffset,
+            chunkDocumentEndOffset: documentChunks.documentEndOffset,
           })
           .from(questionCitations)
           .innerJoin(documents, eq(questionCitations.documentId, documents.id))
@@ -230,6 +236,8 @@ export async function getQuizRecord(quizId: number): Promise<QuizRecord> {
       documentName: citation.documentName,
       chunkId: citation.chunkId,
       chunkText: citation.chunkText,
+      chunkDocumentStartOffset: citation.chunkDocumentStartOffset,
+      chunkDocumentEndOffset: citation.chunkDocumentEndOffset,
       sectionLabel: citation.sectionLabel,
       paragraphIndex: citation.paragraphIndex,
       pageNumber: citation.pageNumber,
@@ -253,6 +261,7 @@ export async function getQuizRecord(quizId: number): Promise<QuizRecord> {
 
   return {
     id: quiz.id,
+    subjectPath: quiz.subjectPath,
     title: quiz.title,
     status: quiz.status,
     provider: quiz.provider,
@@ -269,9 +278,77 @@ export async function getQuizRecord(quizId: number): Promise<QuizRecord> {
       mimeType: document.mimeType,
       extractionStatus: document.extractionStatus,
       normalizationNotes: document.normalizationNotes,
+      rawText: document.rawText,
     })),
     questions,
   }
+}
+
+export async function listQuizSummaries(): Promise<QuizSummaryRecord[]> {
+  const db = getDb()
+  const quizRows = await db.select().from(quizzes).orderBy(asc(quizzes.subjectPath), asc(quizzes.createdAt))
+
+  if (quizRows.length === 0) {
+    return []
+  }
+
+  const collectionIds = [...new Set(quizRows.map((quiz) => quiz.sourceCollectionId))]
+  const quizIds = quizRows.map((quiz) => quiz.id)
+  const sourceDocs = await db
+    .select()
+    .from(documents)
+    .where(inArray(documents.sourceCollectionId, collectionIds))
+    .orderBy(asc(documents.id))
+  const attemptRows =
+    quizIds.length > 0
+      ? await db
+          .select()
+          .from(quizAttempts)
+          .where(inArray(quizAttempts.quizId, quizIds))
+          .orderBy(asc(quizAttempts.quizId), asc(quizAttempts.submittedAt))
+      : []
+
+  const documentsByCollectionId = new Map<number, QuizSummaryRecord['documents']>()
+  sourceDocs.forEach((document) => {
+    const current = documentsByCollectionId.get(document.sourceCollectionId) ?? []
+    current.push({
+      id: document.id,
+      displayName: document.displayName,
+      originalFileName: document.originalFileName,
+    })
+    documentsByCollectionId.set(document.sourceCollectionId, current)
+  })
+  const attemptsByQuizId = new Map<number, AttemptSummaryRecord[]>()
+  attemptRows.forEach((attempt) => {
+    const current = attemptsByQuizId.get(attempt.quizId) ?? []
+    current.push({
+      id: attempt.id,
+      quizId: attempt.quizId,
+      scorePercent: attempt.scorePercent,
+      correctAnswers: attempt.correctAnswers,
+      totalQuestions: attempt.totalQuestions,
+      submittedAt: attempt.submittedAt.toISOString(),
+    })
+    attemptsByQuizId.set(attempt.quizId, current)
+  })
+
+  return quizRows.map((quiz) => {
+    const relatedDocuments = documentsByCollectionId.get(quiz.sourceCollectionId) ?? []
+    const attempts = [...(attemptsByQuizId.get(quiz.id) ?? [])].sort(
+      (left, right) => new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime(),
+    )
+
+    return {
+      id: quiz.id,
+      subjectPath: quiz.subjectPath,
+      title: quiz.title,
+      totalQuestions: quiz.totalQuestions,
+      createdAt: quiz.createdAt.toISOString(),
+      documentCount: relatedDocuments.length,
+      documents: relatedDocuments,
+      attempts,
+    }
+  })
 }
 
 export async function submitQuizAttempt({
@@ -373,6 +450,35 @@ export async function getAttemptForQuiz({ quizId, attemptId }: { quizId: number;
   return attempt
 }
 
+export async function updateQuizMetadata({
+  quizId,
+  title,
+  subjectPath,
+}: QuizMetadataUpdate): Promise<QuizRecord> {
+  const db = getDb()
+  const normalizedTitle = title.trim()
+  const normalizedSubjectPath = normalizeSubjectPath(subjectPath)
+
+  if (!normalizedTitle) {
+    throw new Error('Quiz title is required')
+  }
+
+  const [existingQuiz] = await db.select().from(quizzes).where(eq(quizzes.id, quizId))
+  if (!existingQuiz) {
+    throw new Error('Quiz not found')
+  }
+
+  await db
+    .update(quizzes)
+    .set({
+      title: normalizedTitle,
+      subjectPath: normalizedSubjectPath,
+    })
+    .where(eq(quizzes.id, quizId))
+
+  return getQuizRecord(quizId)
+}
+
 export async function deleteQuizById(quizId: number) {
   const db = getDb()
   const [quiz] = await db.select().from(quizzes).where(eq(quizzes.id, quizId))
@@ -407,6 +513,16 @@ function validateGeneratedQuestionMix(
 
 function normalizeAnswer(value: string) {
   return value.trim().toLowerCase()
+}
+
+function normalizeSubjectPath(value: string) {
+  const normalized = value
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join(' / ')
+
+  return normalized || 'Uncategorized'
 }
 
 function findExcerptRange(chunkText: string, requestedExcerpt: string | undefined) {

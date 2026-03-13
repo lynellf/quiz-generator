@@ -1,6 +1,14 @@
 import { createServerFn } from '@tanstack/react-start'
 import { parseQuizGenerationFormData } from '#/features/quiz/http'
-import { createQuizFromUploads, getAttemptForQuiz, getQuizRecord, submitQuizAttempt } from '#/features/quiz/store'
+import {
+  createQuizFromUploads,
+  getAttemptForQuiz,
+  getQuizRecord,
+  listQuizSummaries,
+  submitQuizAttempt,
+  updateQuizMetadata as updateQuizMetadataInStore,
+} from '#/features/quiz/store'
+import type { QuizMetadataUpdate } from '#/features/quiz/types'
 
 export const generateQuiz = createServerFn({ method: 'POST' })
   .inputValidator((input: FormData) => input)
@@ -15,6 +23,13 @@ export const getQuiz = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     const quiz = await getQuizRecord(data.quizId)
     return { quiz }
+  })
+
+export const listQuizzes = createServerFn({ method: 'GET' })
+  .inputValidator((input: Record<string, never> = {}) => input)
+  .handler(async () => {
+    const quizzes = await listQuizSummaries()
+    return { quizzes }
   })
 
 export const submitQuiz = createServerFn({ method: 'POST' })
@@ -39,4 +54,11 @@ export const getAttempt = createServerFn({ method: 'GET' })
     })
 
     return { attempt }
+  })
+
+export const updateQuizMetadata = createServerFn({ method: 'POST' })
+  .inputValidator((input: QuizMetadataUpdate) => input)
+  .handler(async ({ data }) => {
+    const quiz = await updateQuizMetadataInStore(data)
+    return { quiz }
   })

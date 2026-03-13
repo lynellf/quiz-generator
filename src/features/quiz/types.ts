@@ -3,6 +3,13 @@ export type SupportedQuestionType = 'multiple_choice' | 'true_false'
 export type QuizGenerationSettings = {
   totalQuestions: number
   multipleChoiceRatio: number
+  subjectPath: string
+}
+
+export type QuizMetadataUpdate = {
+  quizId: number
+  title: string
+  subjectPath: string
 }
 
 export type ParsedUpload = {
@@ -90,6 +97,8 @@ export type CitationRecord = {
   documentName: string
   chunkId: number
   chunkText: string
+  chunkDocumentStartOffset: number
+  chunkDocumentEndOffset: number
   sectionLabel: string | null
   paragraphIndex: number | null
   pageNumber: number | null
@@ -98,8 +107,19 @@ export type CitationRecord = {
   excerptEndOffset: number
 }
 
+export type SourceDocumentRecord = {
+  id: number
+  displayName: string
+  originalFileName: string
+  mimeType: string
+  extractionStatus: string
+  normalizationNotes: string | null
+  rawText: string
+}
+
 export type QuizRecord = {
   id: number
+  subjectPath: string
   title: string
   status: string
   provider: string
@@ -109,15 +129,28 @@ export type QuizRecord = {
   trueFalseCount: number
   generationNotes: string | null
   createdAt: string
-  documents: Array<{
-    id: number
-    displayName: string
-    originalFileName: string
-    mimeType: string
-    extractionStatus: string
-    normalizationNotes: string | null
-  }>
+  documents: SourceDocumentRecord[]
   questions: QuizQuestionRecord[]
+}
+
+export type QuizSummaryRecord = {
+  id: number
+  subjectPath: string
+  title: string
+  totalQuestions: number
+  createdAt: string
+  documentCount: number
+  documents: Array<Pick<SourceDocumentRecord, 'id' | 'displayName' | 'originalFileName'>>
+  attempts: AttemptSummaryRecord[]
+}
+
+export type AttemptSummaryRecord = {
+  id: number
+  quizId: number
+  scorePercent: number
+  correctAnswers: number
+  totalQuestions: number
+  submittedAt: string
 }
 
 export type AttemptRecord = {

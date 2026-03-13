@@ -29,6 +29,7 @@ export async function parseQuizGenerationFormData(formData: FormData) {
   const settings: QuizGenerationSettings = {
     totalQuestions,
     multipleChoiceRatio,
+    subjectPath: normalizeSubjectPath(formData.get('subjectPath')),
   }
 
   return { uploads, settings }
@@ -104,6 +105,20 @@ function parseInteger(value: FormDataEntryValue | null, fieldName: string) {
   }
 
   return parsed
+}
+
+function normalizeSubjectPath(value: FormDataEntryValue | null) {
+  if (typeof value !== 'string') {
+    return 'Uncategorized'
+  }
+
+  const normalized = value
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join(' / ')
+
+  return normalized || 'Uncategorized'
 }
 
 function getExtension(filename: string) {
