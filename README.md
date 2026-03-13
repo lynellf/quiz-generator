@@ -1,11 +1,12 @@
-# homelab-app-starter
+# quiz-generator
 
-Opinionated TanStack Start starter with:
+Document-grounded quiz generator built with:
 
 - React 19 + Vite
 - Tailwind CSS
 - Postgres for persistence
 - Drizzle ORM + Drizzle Kit for schema and migrations
+- OpenRouter for quiz generation
 - Local development optimized for `npm run dev` on the host and Postgres in Docker
 
 ## Core technologies
@@ -107,7 +108,14 @@ For containerized deployments, values set under a Compose service `environment:`
 
 ### App-specific environment variables
 
-Do not bake third-party API keys directly into the starter contract. When an app needs them:
+This app expects:
+
+- `OPENROUTER_API_KEY`: required server-side secret for quiz generation
+- `OPENROUTER_MODEL`: optional default model override
+- `OPENROUTER_SITE_URL`: optional request attribution header
+- `OPENROUTER_APP_NAME`: optional request attribution title
+
+Do not bake third-party API keys directly into the client or commit them to the repo. When an app needs them:
 
 1. Add them to `.env.example`
 2. Document them in this README
