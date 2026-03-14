@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { parseQuizGenerationFormData } from '#/features/quiz/http'
 import {
   createQuizFromUploads,
+  createRemedialQuiz,
   getAttemptForQuiz,
   getQuizRecord,
   listQuizSummaries,
@@ -22,6 +23,17 @@ export const getQuiz = createServerFn({ method: 'GET' })
   .inputValidator((input: { quizId: number }) => input)
   .handler(async ({ data }) => {
     const quiz = await getQuizRecord(data.quizId)
+    return { quiz }
+  })
+
+export const generateRemedialQuiz = createServerFn({ method: 'POST' })
+  .inputValidator((input: { scope: 'quiz'; quizId: number } | { scope: 'subject'; subjectPath: string }) => input)
+  .handler(async ({ data }) => {
+    const quiz =
+      data.scope === 'quiz'
+        ? await createRemedialQuiz({ scope: 'quiz', quizId: data.quizId })
+        : await createRemedialQuiz({ scope: 'subject', subjectPath: data.subjectPath })
+
     return { quiz }
   })
 

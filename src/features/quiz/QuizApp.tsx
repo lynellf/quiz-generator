@@ -29,6 +29,7 @@ import {
   SheetTitle,
 } from '#/components/ui/sheet'
 import {
+  generateRemedialQuiz,
   listQuizzes,
   generateQuiz,
   getAttempt,
@@ -68,6 +69,7 @@ type SubjectTreeNode = {
   children: SubjectTreeNode[]
   quizzes: QuizSummaryRecord[]
   latestAverageScore: number | null
+  remedialAvailability: 'available' | 'no_attempts' | 'no_incorrect'
 }
 
 const UNCATEGORIZED_SUBJECT = 'Uncategorized'
@@ -89,6 +91,8 @@ export function QuizApp({ search }: { search: SearchState }) {
   const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>({})
   const [expandedQuizzes, setExpandedQuizzes] = useState<Record<number, boolean>>({})
   const [isGenerating, setIsGenerating] = useState(false)
+  const [subjectRemedialKey, setSubjectRemedialKey] = useState<string | null>(null)
+  const [isGeneratingQuizRemedial, setIsGeneratingQuizRemedial] = useState(false)
   const [isLoadingQuiz, setIsLoadingQuiz] = useState(false)
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -253,6 +257,12 @@ export function QuizApp({ search }: { search: SearchState }) {
   const subjectPathSuggestions = useMemo(() => getSubjectPathSuggestions(quizList), [quizList])
   const selectedDocument =
     quiz?.documents.find((document) => document.id === selectedSourceDocumentId) ?? quiz?.documents[0] ?? null
+  const activeQuizSummary = useMemo(() => quizList.find((entry) => entry.id === quiz?.id) ?? null, [quiz, quizList])
+  const latestAttemptId = activeQuizSummary?.attempts[0]?.id ?? null
+  const isViewingLatestAttempt = attempt ? latestAttemptId === attempt.id : false
+  const canGenerateQuizRemedial = Boolean(
+    quiz && attempt && isViewingLatestAttempt && attempt.correctAnswers < attempt.totalQuestions,
+  )
 
   async function refreshLibrary() {
     setIsLoadingLibrary(true)
@@ -420,6 +430,80 @@ export function QuizApp({ search }: { search: SearchState }) {
     }
   }
 
+  async function handleGenerateQuizRemedial() {
+    if (!quiz) {
+      return
+    }
+
+    setError(null)
+    setIsGeneratingQuizRemedial(true)
+
+    try {
+      const data = await generateRemedialQuiz({
+        data: {
+          scope: 'quiz',
+          quizId: quiz.id,
+        },
+      })
+
+      setQuiz(data.quiz)
+      setAttempt(null)
+      setAnswers({})
+      setActiveCitation(null)
+      setSelectedSourceDocumentId(data.quiz.documents[0]?.id ?? null)
+      expandSubjectPath(data.quiz.subjectPath)
+      setExpandedQuizzes((current) => ({ ...current, [data.quiz.id]: true }))
+      setIsLeftPanelOpen(true)
+      await refreshLibrary()
+      await navigate({
+        to: '/',
+        search: {
+          quizId: String(data.quiz.id),
+        },
+        replace: true,
+      })
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : 'Unable to generate remedial quiz')
+    } finally {
+      setIsGeneratingQuizRemedial(false)
+    }
+  }
+
+  async function handleGenerateSubjectRemedial(subjectKey: string) {
+    setError(null)
+    setSubjectRemedialKey(subjectKey)
+
+    try {
+      const data = await generateRemedialQuiz({
+        data: {
+          scope: 'subject',
+          subjectPath: subjectKey.replaceAll('/', ' / '),
+        },
+      })
+
+      setQuiz(data.quiz)
+      setAttempt(null)
+      setAnswers({})
+      setActiveCitation(null)
+      setSelectedSourceDocumentId(data.quiz.documents[0]?.id ?? null)
+      expandSubjectPath(data.quiz.subjectPath)
+      setExpandedQuizzes((current) => ({ ...current, [data.quiz.id]: true }))
+      setIsLeftPanelOpen(true)
+      await refreshLibrary()
+      await navigate({
+        to: '/',
+        search: {
+          quizId: String(data.quiz.id),
+        },
+        replace: true,
+      })
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : 'Unable to generate subject remedial quiz')
+    } finally {
+      setSubjectRemedialKey(null)
+    }
+  }
+
   async function handleUpdateQuizMetadata(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -506,6 +590,8 @@ export function QuizApp({ search }: { search: SearchState }) {
                       void openQuiz(quizId, { documentId, closeMobile })
                     }
                   }}
+                  onGenerateRemedial={handleGenerateSubjectRemedial}
+                  activeRemedialKey={subjectRemedialKey}
                   onEditQuiz={openEditQuizDialog}
                 />
               ))}
@@ -825,7 +911,14 @@ export function QuizApp({ search }: { search: SearchState }) {
                       onClick={() => setIsMetadataDialogOpen(true)}
                       className="rounded-xl text-left transition hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{quiz.title}</h2>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{quiz.title}</h2>
+                        {quiz.generationMode === 'remedial' ? (
+                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-900 dark:text-amber-100">
+                            Remedial
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="mt-2 text-sm text-muted-foreground">
                         {quiz.subjectPath} • {quiz.totalQuestions} questions • {quiz.documents.length} source
                         document{quiz.documents.length === 1 ? '' : 's'} • View metadata
@@ -1001,26 +1094,54 @@ export function QuizApp({ search }: { search: SearchState }) {
                   <StatCard label="Total questions" value={String(attempt.totalQuestions)} />
                 </CardContent>
                 <CardFooter className="justify-between gap-3">
-                  <p className="m-0 text-sm text-muted-foreground">
-                    Open any citation to review the saved supporting excerpt in the source panel.
-                  </p>
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      setAttempt(null)
-                      setActiveCitation(null)
-                      setReviewFilter('all')
-                      await navigate({
-                        to: '/',
-                        search: {
-                          quizId: String(quiz.id),
-                        },
-                        replace: true,
-                      })
-                    }}
-                  >
-                    Retake this quiz
-                  </Button>
+                  <div className="space-y-2">
+                    <p className="m-0 text-sm text-muted-foreground">
+                      Open any citation to review the saved supporting excerpt in the source panel.
+                    </p>
+                    {!isViewingLatestAttempt ? (
+                      <p className="m-0 text-xs text-muted-foreground">
+                        Remedial generation is only available from the latest attempt for this quiz.
+                      </p>
+                    ) : null}
+                    {attempt.correctAnswers === attempt.totalQuestions ? (
+                      <p className="m-0 text-xs text-muted-foreground">
+                        This latest attempt has no incorrect answers to remediate.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={!canGenerateQuizRemedial || isGeneratingQuizRemedial}
+                      onClick={handleGenerateQuizRemedial}
+                    >
+                      {isGeneratingQuizRemedial ? (
+                        <>
+                          <LoaderCircle className="size-4 animate-spin" />
+                          Generating remedial
+                        </>
+                      ) : (
+                        'Generate remedial quiz'
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        setAttempt(null)
+                        setActiveCitation(null)
+                        setReviewFilter('all')
+                        await navigate({
+                          to: '/',
+                          search: {
+                            quizId: String(quiz.id),
+                          },
+                          replace: true,
+                        })
+                      }}
+                    >
+                      Retake this quiz
+                    </Button>
+                  </div>
                 </CardFooter>
               </Card>
             ) : null}
@@ -1140,9 +1261,18 @@ export function QuizApp({ search }: { search: SearchState }) {
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <StatCard label="Provider" value={quiz.provider} />
                   <StatCard label="Model" value={quiz.model} />
+                  <StatCard label="Generation" value={quiz.generationMode === 'remedial' ? 'Remedial' : 'Standard'} />
                   <StatCard label="Multiple choice" value={String(quiz.multipleChoiceCount)} />
                   <StatCard label="True / false" value={String(quiz.trueFalseCount)} />
                 </div>
+
+                {quiz.generationMode === 'remedial' ? (
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+                    {quiz.remedialScope === 'quiz' && quiz.parentQuizId
+                      ? `Remedial quiz generated from the latest incorrect answers in quiz #${quiz.parentQuizId}.`
+                      : `Remedial quiz generated from the latest incorrect answers in ${quiz.sourceSubjectPath ?? quiz.subjectPath}.`}
+                  </div>
+                ) : null}
 
                 <Card className="border-border/70 bg-card/95">
                   <CardHeader>
@@ -1284,6 +1414,8 @@ function SubjectBranch({
   onToggleQuiz,
   onOpenQuiz,
   onSelectDocument,
+  onGenerateRemedial,
+  activeRemedialKey,
   onEditQuiz,
 }: {
   node: SubjectTreeNode
@@ -1294,26 +1426,57 @@ function SubjectBranch({
   onToggleQuiz: (quizId: number) => void
   onOpenQuiz: (quiz: QuizSummaryRecord, documentId?: number) => void
   onSelectDocument: (quizId: number, documentId: number) => void
+  onGenerateRemedial: (subjectKey: string) => void
+  activeRemedialKey: string | null
   onEditQuiz: (quiz: QuizSummaryRecord) => void
 }) {
   const isExpanded = expandedSubjects[node.key] ?? true
+  const remedialDisabled = node.remedialAvailability !== 'available'
+  const remedialHelpText =
+    node.remedialAvailability === 'no_attempts'
+      ? 'No latest attempts in this category yet.'
+      : node.remedialAvailability === 'no_incorrect'
+        ? 'Latest attempts in this category have no incorrect answers.'
+        : 'Generate a remedial quiz from the latest misses in this category.'
 
   return (
     <div className="rounded-2xl border border-transparent bg-transparent">
-      <button
-        type="button"
-        onClick={() => onToggleSubject(node.key)}
-        className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm font-medium text-foreground hover:bg-muted/45"
-      >
-        {isExpanded ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
-        <FolderOpen className="size-4 text-primary" />
-        <span className="flex-1">{node.label}</span>
-        {isTopLevelSubject(node) && node.latestAverageScore !== null ? (
-          <span className="text-xs font-medium text-muted-foreground">
-            Avg {Math.round(node.latestAverageScore)}%
-          </span>
-        ) : null}
-      </button>
+      <div className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-muted/45">
+        <button
+          type="button"
+          onClick={() => onToggleSubject(node.key)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm font-medium text-foreground"
+        >
+          {isExpanded ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
+          <FolderOpen className="size-4 text-primary" />
+          <span className="flex-1 truncate">{node.label}</span>
+          {isTopLevelSubject(node) && node.latestAverageScore !== null ? (
+            <span className="text-xs font-medium text-muted-foreground">
+              Avg {Math.round(node.latestAverageScore)}%
+            </span>
+          ) : null}
+        </button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={remedialDisabled || activeRemedialKey === node.key}
+          title={remedialHelpText}
+          onClick={(event) => {
+            event.stopPropagation()
+            onGenerateRemedial(node.key)
+          }}
+        >
+          {activeRemedialKey === node.key ? (
+            <>
+              <LoaderCircle className="size-4 animate-spin" />
+              Remedial
+            </>
+          ) : (
+            'Remedial'
+          )}
+        </Button>
+      </div>
 
       {isExpanded ? (
         <div className="ml-3 border-l border-border/70 pl-2">
@@ -1328,6 +1491,8 @@ function SubjectBranch({
               onToggleQuiz={onToggleQuiz}
               onOpenQuiz={onOpenQuiz}
               onSelectDocument={onSelectDocument}
+              onGenerateRemedial={onGenerateRemedial}
+              activeRemedialKey={activeRemedialKey}
               onEditQuiz={onEditQuiz}
             />
           ))}
@@ -1350,7 +1515,10 @@ function SubjectBranch({
                   {isQuizExpanded ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
                   <LibraryBig className="size-4 text-primary" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{quiz.title}</span>
+                    <span className="block truncate text-sm font-medium">
+                      {quiz.title}
+                      {quiz.generationMode === 'remedial' ? ' • Remedial' : ''}
+                    </span>
                     <span className="block text-xs text-muted-foreground">
                       {quiz.totalQuestions} questions • {formatLatestScore(quiz)} • {quiz.attempts.length} attempt
                       {quiz.attempts.length === 1 ? '' : 's'}
@@ -1480,6 +1648,7 @@ function buildSubjectTree(quizzes: QuizSummaryRecord[]) {
           children: [],
           quizzes: [],
           latestAverageScore: null,
+          remedialAvailability: 'no_attempts',
         }
         currentLevel.push(nextNode)
       }
@@ -1508,6 +1677,7 @@ function sortNodes(nodes: SubjectTreeNode[]) {
         quizzes,
         children,
         latestAverageScore: computeAverageLatestScore(quizzes, children),
+        remedialAvailability: computeSubjectRemedialAvailability(quizzes, children),
       }
     })
 }
@@ -1537,6 +1707,23 @@ function getSubjectPathSuggestions(quizzes: QuizSummaryRecord[]) {
 function formatLatestScore(quiz: QuizSummaryRecord) {
   const latestAttempt = quiz.attempts[0]
   return latestAttempt ? `Latest ${latestAttempt.scorePercent}%` : 'No results yet'
+}
+
+function computeSubjectRemedialAvailability(quizzes: QuizSummaryRecord[], children: SubjectTreeNode[]) {
+  const ownLatestScores = quizzes
+    .map((quiz) => quiz.attempts[0]?.scorePercent)
+    .filter((score): score is number => typeof score === 'number')
+  const childStates = children.map((child) => child.remedialAvailability)
+
+  if (ownLatestScores.length === 0 && childStates.every((state) => state === 'no_attempts')) {
+    return 'no_attempts' as const
+  }
+
+  if (ownLatestScores.some((score) => score < 100) || childStates.includes('available')) {
+    return 'available' as const
+  }
+
+  return 'no_incorrect' as const
 }
 
 function computeAverageLatestScore(quizzes: QuizSummaryRecord[], children: SubjectTreeNode[]) {

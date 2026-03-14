@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildRemedialOpenRouterRequest,
   buildOpenRouterRequest,
   resolveOpenRouterConfig,
   validateModelQuizPayload,
@@ -47,6 +48,60 @@ describe('openrouter integration helpers', () => {
     expect(request.response_format).toEqual({ type: 'json_object' })
     expect(request.messages[0].role).toBe('system')
     expect(request.messages[1].content).toContain('"chunkId"')
+  })
+
+  it('builds a remedial request with missed-question context', () => {
+    const request = buildRemedialOpenRouterRequest({
+      model: 'openai/gpt-4.1-mini',
+      questionTypes: ['multiple_choice', 'true_false'],
+      scopeLabel: 'History / Civil War',
+      missedQuestions: [
+        {
+          questionId: 1,
+          quizId: 2,
+          quizTitle: 'Civil War Review',
+          subjectPath: 'History / Civil War',
+          questionType: 'multiple_choice',
+          prompt: 'What happened?',
+          selectedAnswer: 'B',
+          correctAnswer: 'A',
+          explanation: 'Because the source says so.',
+          citations: [
+            {
+              id: 9,
+              documentId: 4,
+              documentName: 'Doc',
+              chunkId: 12,
+              chunkText: 'Important fact',
+              chunkDocumentStartOffset: 0,
+              chunkDocumentEndOffset: 14,
+              sectionLabel: 'Intro',
+              paragraphIndex: 0,
+              pageNumber: null,
+              excerpt: 'Important fact',
+              excerptStartOffset: 0,
+              excerptEndOffset: 14,
+            },
+          ],
+        },
+      ],
+      chunks: [
+        {
+          id: 12,
+          documentId: 4,
+          documentName: 'Doc',
+          sectionLabel: 'Intro',
+          paragraphIndex: 0,
+          pageNumber: null,
+          text: 'Important fact',
+        },
+      ],
+    })
+
+    expect(request.response_format).toEqual({ type: 'json_object' })
+    expect(request.messages[0].content).toContain('fresh practice questions')
+    expect(request.messages[1].content).toContain('"missedQuestions"')
+    expect(request.messages[1].content).toContain('"userAnswer"')
   })
 
   it('accepts a valid model payload', () => {

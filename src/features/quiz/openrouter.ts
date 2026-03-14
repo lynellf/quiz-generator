@@ -1,6 +1,7 @@
 import type {
   ModelQuestion,
   ModelQuizPayload,
+  RemedialQuestionSeed,
   QuizGenerationSettings,
   SourceChunkForModel,
 } from '#/features/quiz/types'
@@ -85,6 +86,95 @@ export function buildOpenRouterRequest({
   }
 }
 
+export function buildRemedialOpenRouterRequest({
+  questionTypes,
+  chunks,
+  missedQuestions,
+  scopeLabel,
+  model,
+}: {
+  questionTypes: Array<ModelQuestion['type']>
+  chunks: SourceChunkForModel[]
+  missedQuestions: RemedialQuestionSeed[]
+  scopeLabel: string
+  model: string
+}) {
+  const counts = {
+    totalQuestions: questionTypes.length,
+    multipleChoiceCount: questionTypes.filter((type) => type === 'multiple_choice').length,
+    trueFalseCount: questionTypes.filter((type) => type === 'true_false').length,
+  }
+
+  const system = [
+    'You generate remedial study quizzes from source material.',
+    'Return JSON only. Do not wrap it in markdown fences.',
+    'Every question must cite at least one chunkId from the provided source chunks.',
+    'Use only information supported by the chunks.',
+    'Create fresh practice questions that target the same concepts as the missed questions without copying them verbatim.',
+    `Return exactly ${counts.multipleChoiceCount} multiple_choice questions and ${counts.trueFalseCount} true_false questions.`,
+    'For multiple_choice questions, return exactly 4 options and the correctAnswer must equal one option verbatim.',
+    'For true_false questions, use exactly True or False as the correctAnswer.',
+    'Keep explanations concise and specific.',
+  ].join(' ')
+
+  const user = JSON.stringify(
+    {
+      task: {
+        remedialScope: scopeLabel,
+        totalQuestions: counts.totalQuestions,
+        multipleChoiceCount: counts.multipleChoiceCount,
+        trueFalseCount: counts.trueFalseCount,
+      },
+      missedQuestions: missedQuestions.map((question) => ({
+        quizTitle: question.quizTitle,
+        subjectPath: question.subjectPath,
+        type: question.questionType,
+        prompt: question.prompt,
+        userAnswer: question.selectedAnswer,
+        correctAnswer: question.correctAnswer,
+        explanation: question.explanation,
+        citations: question.citations.map((citation) => ({
+          chunkId: citation.chunkId,
+          excerpt: citation.excerpt,
+        })),
+      })),
+      outputSchema: {
+        quizTitle: 'string',
+        questions: [
+          {
+            type: 'multiple_choice | true_false',
+            prompt: 'string',
+            options: ['string'],
+            correctAnswer: 'string',
+            explanation: 'string',
+            citations: [
+              {
+                chunkId: 'number',
+                excerpt: 'string',
+              },
+            ],
+          },
+        ],
+      },
+      chunks,
+    },
+    null,
+    2,
+  )
+
+  return {
+    model,
+    temperature: 0.2,
+    response_format: {
+      type: 'json_object',
+    },
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+  }
+}
+
 export async function generateQuizWithOpenRouter({
   settings,
   chunks,
@@ -98,6 +188,63 @@ export async function generateQuizWithOpenRouter({
   const requestBody = buildOpenRouterRequest({
     settings,
     chunks,
+    model: config.model,
+  })
+
+  const response = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+      ...(config.siteUrl ? { 'HTTP-Referer': config.siteUrl } : {}),
+      ...(config.appName ? { 'X-Title': config.appName } : {}),
+    },
+    body: JSON.stringify(requestBody),
+  })
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(`OpenRouter request failed: ${response.status} ${message}`)
+  }
+
+  const json = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>
+  }
+
+  const content = json.choices?.[0]?.message?.content
+  if (!content) {
+    throw new Error('OpenRouter returned an empty response')
+  }
+
+  const payload = safeJsonParse(content)
+  validateModelQuizPayload(payload)
+
+  return {
+    payload,
+    provider: 'openrouter',
+    model: config.model,
+  }
+}
+
+export async function generateRemedialQuizWithOpenRouter({
+  questionTypes,
+  chunks,
+  missedQuestions,
+  scopeLabel,
+  env = process.env,
+}: {
+  questionTypes: Array<ModelQuestion['type']>
+  chunks: SourceChunkForModel[]
+  missedQuestions: RemedialQuestionSeed[]
+  scopeLabel: string
+  env?: NodeJS.ProcessEnv
+}) {
+  const config = resolveOpenRouterConfig(env)
+  const requestBody = buildRemedialOpenRouterRequest({
+    questionTypes,
+    chunks,
+    missedQuestions,
+    scopeLabel,
     model: config.model,
   })
 
