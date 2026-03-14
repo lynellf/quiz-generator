@@ -1,4 +1,6 @@
 export type SupportedQuestionType = 'multiple_choice' | 'true_false'
+export type QuizGenerationMode = 'standard' | 'remedial'
+export type RemedialScope = 'quiz' | 'subject'
 
 export type QuizGenerationSettings = {
   totalQuestions: number
@@ -91,6 +93,13 @@ export type QuizQuestionRecord = {
   citations: CitationRecord[]
 }
 
+export type QuizOriginRecord = {
+  generationMode: QuizGenerationMode
+  remedialScope: RemedialScope | null
+  parentQuizId: number | null
+  sourceSubjectPath: string | null
+}
+
 export type CitationRecord = {
   id: number
   documentId: number
@@ -117,7 +126,7 @@ export type SourceDocumentRecord = {
   rawText: string
 }
 
-export type QuizRecord = {
+export type QuizRecord = QuizOriginRecord & {
   id: number
   subjectPath: string
   title: string
@@ -133,7 +142,7 @@ export type QuizRecord = {
   questions: QuizQuestionRecord[]
 }
 
-export type QuizSummaryRecord = {
+export type QuizSummaryRecord = QuizOriginRecord & {
   id: number
   subjectPath: string
   title: string
@@ -165,4 +174,17 @@ export type AttemptRecord = {
     selectedAnswer: string
     isCorrect: boolean
   }>
+}
+
+export type RemedialQuestionSeed = {
+  questionId: number
+  quizId: number
+  quizTitle: string
+  subjectPath: string
+  questionType: SupportedQuestionType
+  prompt: string
+  correctAnswer: string
+  selectedAnswer: string
+  explanation: string
+  citations: CitationRecord[]
 }
